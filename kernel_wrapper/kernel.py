@@ -1,62 +1,63 @@
-"""Main kernel wrapper implementation."""
+"""Main kernel wrapper implementation with jumper_extension support."""
 
-import json
 import re
 from queue import Queue, Empty
 from threading import Thread
-from ipykernel.kernelbase import Kernel
+from ipykernel.ipkernel import IPythonKernel
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
 
 
-class WrapperKernel(Kernel):
-    """A Jupyter kernel that can wrap and forward to other kernels."""
+class WrapperKernel(IPythonKernel):
+    """A Jupyter kernel that can wrap and forward to other kernels with jumper_extension support."""
     
     implementation = 'KernelWrapper'
-    implementation_version = '0.1.0'
-    language = 'text'
-    language_version = '0.1'
-    language_info = {
-        'name': 'text',
-        'mimetype': 'text/plain',
-        'file_extension': '.txt',
-    }
-    banner = "Kernel Wrapper - Use %wrap <kernel_name> to wrap another kernel"
+    implementation_version = '0.3.0'
+    
+    banner = "Kernel Wrapper - Use %wrap <kernel_name> to wrap another kernel\nJumper extensions are loaded and available."
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.wrapped_kernel_manager = None
         self.wrapped_kernel_client = None
         self.wrapped_kernel_name = None
-        self.message_queue = Queue()
-        self.listener_thread = None
-        
+        self._load_jumper_extension()
+    
+    def _load_jumper_extension(self):
+        """Load jumper_extension as an IPython extension."""
+        try:
+            # Load the jumper extension using IPython's extension mechanism
+            self.shell.extension_manager.load_extension('jumper_extension')
+            self.log.info("jumper_extension loaded successfully")
+        except Exception as e:
+            self.log.error(f"Failed to load jumper_extension: {str(e)}")
+            self.log.error("Jumper magics will not be available.")
+    
     def do_execute(self, code, silent, store_history=True, user_expressions=None,
                    allow_stdin=False):
-        """Execute code or magic commands."""
+        """Execute code or magic commands with jumper_extension support."""
         
         if not silent:
-            # Check for %wrap magic command
+            # Check for %wrap magic command first
             wrap_match = re.match(r'^\s*%wrap\s+(\S+)\s*$', code.strip())
             
             if wrap_match:
                 kernel_name = wrap_match.group(1)
                 return self._wrap_kernel(kernel_name)
             
-            # If we have a wrapped kernel, forward the code to it
+            # If we have a wrapped kernel, check if this is a magic command
             if self.wrapped_kernel_manager and self.wrapped_kernel_client:
-                return self._forward_to_wrapped_kernel(code, allow_stdin)
+                # Check if code contains a magic command that should be handled by wrapper
+                if self._is_wrapper_magic(code):
+                    # Execute in wrapper's IPython shell (handles magics)
+                    return super().do_execute(code, silent, store_history, user_expressions, allow_stdin)
+                else:
+                    # Forward to wrapped kernel
+                    return self._forward_to_wrapped_kernel(code, allow_stdin)
             else:
-                # No kernel wrapped yet
-                self.send_response(
-                    self.iopub_socket,
-                    'stream',
-                    {
-                        'name': 'stdout',
-                        'text': 'No kernel wrapped yet. Use %wrap <kernel_name> to wrap a kernel.\n'
-                               'Available kernels:\n' + self._list_available_kernels()
-                    }
-                )
+                # No kernel wrapped yet - execute in the wrapper's IPython shell
+                # This allows jumper magics to work before wrapping a kernel
+                return super().do_execute(code, silent, store_history, user_expressions, allow_stdin)
         
         return {
             'status': 'ok',
@@ -64,6 +65,26 @@ class WrapperKernel(Kernel):
             'payload': [],
             'user_expressions': {},
         }
+    
+    def _is_wrapper_magic(self, code):
+        """Check if code contains a magic command available in the wrapper kernel."""
+        code_stripped = code.strip()
+        
+        # Check for line magic (% or %%)
+        line_magic_match = re.match(r'^\s*%{1,2}([a-zA-Z0-9_]+)', code_stripped)
+        if not line_magic_match:
+            return False
+        
+        magic_name = line_magic_match.group(1)
+        is_cell_magic = code_stripped.startswith('%%')
+        
+        # Check if this magic is available in the wrapper's IPython shell
+        if is_cell_magic:
+            # Check for cell magics
+            return magic_name in self.shell.magics_manager.magics['cell']
+        else:
+            # Check for line magics
+            return magic_name in self.shell.magics_manager.magics['line']
     
     def _list_available_kernels(self):
         """List all available kernels on the system."""
@@ -94,8 +115,8 @@ class WrapperKernel(Kernel):
                 'stream',
                 {
                     'name': 'stderr',
-                    'text': f'Error: Kernel "{kernel_name}" not found.\n'
-                           f'Available kernels:\n{self._list_available_kernels()}\n'
+                    'text': (f'Error: Kernel "{kernel_name}" not found.\n'
+                           f'Available kernels:\n{self._list_available_kernels()}\n')
                 }
             )
             return {
@@ -115,20 +136,17 @@ class WrapperKernel(Kernel):
             self.wrapped_kernel_client.wait_for_ready(timeout=30)
             self.wrapped_kernel_name = kernel_name
             
-            # Update language info based on wrapped kernel
-            self._update_language_info(spec)
-            
-            # Start listener thread for wrapped kernel messages
-            self.listener_thread = Thread(target=self._listen_to_wrapped_kernel, daemon=True)
-            self.listener_thread.start()
+            # Initialize jumper extensions in the wrapped kernel if it's a Python kernel
+            self._initialize_wrapped_jumper_extensions()
             
             self.send_response(
                 self.iopub_socket,
                 'stream',
                 {
                     'name': 'stdout',
-                    'text': f'Successfully wrapped kernel: {kernel_name} ({spec.display_name})\n'
+                    'text': (f'Successfully wrapped kernel: {kernel_name} ({spec.display_name})\n'
                            f'All subsequent code will be executed in the wrapped kernel.\n'
+                           f'Jumper extensions are available in the wrapper kernel.\n')
                 }
             )
             
@@ -156,22 +174,24 @@ class WrapperKernel(Kernel):
                 'traceback': []
             }
     
-    def _update_language_info(self, spec):
-        """Update language info based on wrapped kernel spec."""
-        if spec.language:
-            self.language = spec.language
-            self.language_info['name'] = spec.language
-            
-            # Set common file extensions and mimetypes
-            lang_map = {
-                'python': {'mimetype': 'text/x-python', 'file_extension': '.py'},
-                'r': {'mimetype': 'text/x-r', 'file_extension': '.r'},
-                'julia': {'mimetype': 'text/x-julia', 'file_extension': '.jl'},
-                'javascript': {'mimetype': 'application/javascript', 'file_extension': '.js'},
-            }
-            
-            if spec.language in lang_map:
-                self.language_info.update(lang_map[spec.language])
+    def _initialize_wrapped_jumper_extensions(self):
+        """Initialize jumper extensions in the wrapped kernel if possible."""
+        if not self.wrapped_kernel_client:
+            return
+        
+        # Only try to initialize jumper extensions for Python kernels
+        if 'python' in self.wrapped_kernel_name.lower():
+            init_code = """
+try:
+    get_ipython().extension_manager.load_extension('jumper_extension')
+    print("Jumper extensions initialized in wrapped kernel.")
+except Exception as e:
+    print(f"Note: Could not load jumper_extension in wrapped kernel: {e}")
+"""
+            try:
+                self.wrapped_kernel_client.execute(init_code, store_history=False, silent=False)
+            except Exception as e:
+                self.log.warning(f"Failed to initialize jumper extensions in wrapped kernel: {e}")
     
     def _forward_to_wrapped_kernel(self, code, allow_stdin):
         """Forward code execution to the wrapped kernel."""
@@ -235,12 +255,6 @@ class WrapperKernel(Kernel):
                 'traceback': []
             }
     
-    def _listen_to_wrapped_kernel(self):
-        """Listen for messages from wrapped kernel (for async updates)."""
-        # This thread can be used to handle asynchronous messages from the wrapped kernel
-        # For now, we handle messages synchronously in _forward_to_wrapped_kernel
-        pass
-    
     def _cleanup_wrapped_kernel(self):
         """Clean up the wrapped kernel."""
         if self.wrapped_kernel_client:
@@ -262,7 +276,7 @@ class WrapperKernel(Kernel):
     def do_shutdown(self, restart):
         """Shutdown the kernel and any wrapped kernel."""
         self._cleanup_wrapped_kernel()
-        return {'status': 'ok', 'restart': restart}
+        return super().do_shutdown(restart)
 
 
 if __name__ == '__main__':

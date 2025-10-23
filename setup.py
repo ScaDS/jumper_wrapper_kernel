@@ -1,8 +1,6 @@
 """Setup script for Jupyter Kernel Wrapper."""
 
 from setuptools import setup, find_packages
-import os
-import json
 from pathlib import Path
 
 # Read version from __init__.py
@@ -18,8 +16,8 @@ long_description = readme_path.read_text() if readme_path.exists() else ""
 
 setup(
     name="jupyter-kernel-wrapper",
-    version=version.get("__version__", "0.1.0"),
-    description="A Jupyter kernel that can wrap and forward to other kernels",
+    version=version.get("__version__", "0.2.0"),
+    description="A Jupyter kernel that wraps other kernels with jumper_extension support",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Your Name",
@@ -33,6 +31,7 @@ setup(
     install_requires=[
         "ipykernel>=6.0.0",
         "jupyter-client>=7.0.0",
+        "jumper-extension>=0.1.0",
     ],
     python_requires=">=3.7",
     classifiers=[

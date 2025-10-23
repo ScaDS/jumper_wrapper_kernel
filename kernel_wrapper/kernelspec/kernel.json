@@ -2,12 +2,12 @@
   "argv": [
     "python",
     "-m",
-    "kernel_wrapper.kernel",
+    "kernel_wrapper",
     "-f",
     "{connection_file}"
   ],
-  "display_name": "Kernel Wrapper",
-  "language": "text",
+  "display_name": "Kernel Wrapper (with jumper)",
+  "language": "python",
   "metadata": {
     "debugger": false
   }
