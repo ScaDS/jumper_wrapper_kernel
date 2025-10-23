@@ -12,7 +12,7 @@ class WrapperKernel(IPythonKernel):
     """A Jupyter kernel that can wrap and forward to other kernels with jumper_extension support."""
     
     implementation = 'KernelWrapper'
-    implementation_version = '0.3.0'
+    implementation_version = '0.4.0'
     
     banner = "Kernel Wrapper - Use %wrap <kernel_name> to wrap another kernel\nJumper extensions are loaded and available."
     
@@ -21,6 +21,7 @@ class WrapperKernel(IPythonKernel):
         self.wrapped_kernel_manager = None
         self.wrapped_kernel_client = None
         self.wrapped_kernel_name = None
+        self.wrapped_kernel_spec = None
         self._load_jumper_extension()
     
     def _load_jumper_extension(self):
@@ -135,6 +136,10 @@ class WrapperKernel(IPythonKernel):
             self.wrapped_kernel_client.start_channels()
             self.wrapped_kernel_client.wait_for_ready(timeout=30)
             self.wrapped_kernel_name = kernel_name
+            self.wrapped_kernel_spec = spec
+            
+            # Update language info for syntax highlighting
+            self._update_language_info(spec)
             
             # Initialize jumper extensions in the wrapped kernel if it's a Python kernel
             self._initialize_wrapped_jumper_extensions()
@@ -145,6 +150,8 @@ class WrapperKernel(IPythonKernel):
                 {
                     'name': 'stdout',
                     'text': (f'Successfully wrapped kernel: {kernel_name} ({spec.display_name})\n'
+                           f'Language: {self.language}\n'
+                           f'Syntax highlighting updated for {self.language}.\n'
                            f'All subsequent code will be executed in the wrapped kernel.\n'
                            f'Jumper extensions are available in the wrapper kernel.\n')
                 }
@@ -192,6 +199,77 @@ except Exception as e:
                 self.wrapped_kernel_client.execute(init_code, store_history=False, silent=False)
             except Exception as e:
                 self.log.warning(f"Failed to initialize jumper extensions in wrapped kernel: {e}")
+    
+    def _update_language_info(self, spec):
+        """Update language info based on wrapped kernel spec for syntax highlighting."""
+        # Get language from spec
+        language = spec.language if hasattr(spec, 'language') and spec.language else 'text'
+        
+        # Update the kernel's language attribute
+        self.language = language
+        
+        # Build comprehensive language_info dictionary
+        language_info = {
+            'name': language,
+        }
+        
+        # Language-specific configurations for syntax highlighting
+        lang_configs = {
+            'python': {
+                'mimetype': 'text/x-python',
+                'file_extension': '.py',
+                'pygments_lexer': 'ipython3',
+                'codemirror_mode': {'name': 'ipython', 'version': 3},
+                'nbconvert_exporter': 'python',
+            },
+            'r': {
+                'mimetype': 'text/x-r',
+                'file_extension': '.r',
+                'pygments_lexer': 'r',
+                'codemirror_mode': 'r',
+            },
+            'julia': {
+                'mimetype': 'text/x-julia',
+                'file_extension': '.jl',
+                'pygments_lexer': 'julia',
+                'codemirror_mode': 'julia',
+            },
+            'javascript': {
+                'mimetype': 'application/javascript',
+                'file_extension': '.js',
+                'pygments_lexer': 'javascript',
+                'codemirror_mode': 'javascript',
+            },
+            'scala': {
+                'mimetype': 'text/x-scala',
+                'file_extension': '.scala',
+                'pygments_lexer': 'scala',
+                'codemirror_mode': 'text/x-scala',
+            },
+            'bash': {
+                'mimetype': 'text/x-sh',
+                'file_extension': '.sh',
+                'pygments_lexer': 'bash',
+                'codemirror_mode': 'shell',
+            },
+        }
+        
+        # Apply language-specific configuration
+        if language.lower() in lang_configs:
+            language_info.update(lang_configs[language.lower()])
+        else:
+            # Generic fallback
+            language_info.update({
+                'mimetype': f'text/x-{language}',
+                'file_extension': f'.{language}',
+                'pygments_lexer': language,
+                'codemirror_mode': language,
+            })
+        
+        # Update the kernel's language_info
+        self.language_info = language_info
+        
+        self.log.info(f"Updated language info for syntax highlighting: {language}")
     
     def _forward_to_wrapped_kernel(self, code, allow_stdin):
         """Forward code execution to the wrapped kernel."""
