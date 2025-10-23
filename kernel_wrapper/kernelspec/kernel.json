@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "kernel_wrapper.kernel",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "Kernel Wrapper",
+  "language": "text",
+  "metadata": {
+    "debugger": false
+  }
+}
