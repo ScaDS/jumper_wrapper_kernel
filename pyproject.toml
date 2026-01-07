@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jumper_wrapper_kernel"
+version = "0.1.0"
+description = "A Jupyter kernel that wraps other kernels with jumper-extension support"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Jumper Wrapper Kernel Authors"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Jupyter",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["jupyter", "kernel", "wrapper", "performance", "monitoring"]
+requires-python = ">=3.8"
+dependencies = [
+    "ipykernel>=6.0",
+    "jupyter_client>=7.0",
+    "jumper-extension>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/ScaDS/jumper_wrapper_kernel"
+Repository = "https://github.com/ScaDS/jumper_wrapper_kernel"
+
+[project.scripts]
+jumper-wrapper-kernel-install = "jumper_wrapper_kernel.install:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jumper_wrapper_kernel*"]
