@@ -1,219 +1,145 @@
-# Jupyter Kernel Wrapper with Jumper Extension
+# Jumper Wrapper Kernel
 
-A Python-based Jupyter kernel that wraps other Jupyter kernels and provides full access to jumper_extension magic commands.
+A Jupyter kernel that wraps other kernels while providing jumper-extension performance monitoring capabilities.
 
 ## Features
 
-- **🎯 Wrap Any Kernel**: Use `%wrap <kernel_name>` to wrap any installed Jupyter kernel
-- **✨ Full Jumper Extension Support**: All jumper_extension magics are automatically loaded and available
-- **🔄 Seamless Forwarding**: Code execution is transparently forwarded to the wrapped kernel
-- **🐍 IPython Extension Loading**: Uses IPython's native extension mechanism (`%load_ext`)
-- **🎩 Smart Magic Routing**: Magic commands available in the wrapper are executed locally, others forwarded to wrapped kernel
+- **Wrap any Jupyter kernel**: Use `%wrap_kernel` to wrap any installed Jupyter kernel (Python, R, Julia, etc.)
+- **Performance monitoring**: All jumper-extension magic commands are handled locally, allowing you to monitor performance of any wrapped kernel
+- **Seamless forwarding**: All non-magic code is forwarded to the wrapped kernel transparently
+
+## Requirements
+
+- Python >= 3.8
+- ipykernel >= 6.0
+- jupyter_client >= 7.0
+- **jumper-extension >= 0.3.0** (required dependency)
 
 ## Installation
 
-### 1. Install the package
+```bash
+# Install the package
+pip install jumper_wrapper_kernel
+
+# Install the kernel spec
+python -m jumper_wrapper_kernel.install install
+
+# Or install to sys.prefix (for virtualenv/conda)
+python -m jumper_wrapper_kernel.install install --sys-prefix
+```
+
+### Development Installation
 
 ```bash
-cd /home/eliasw/CascadeProjects/jupyter-kernel-wrapper
+git clone https://github.com/ScaDS/jumper_wrapper_kernel.git
+cd jumper_wrapper_kernel
 pip install -e .
-```
-
-### 2. Install the kernel spec
-
-```bash
-python -m kernel_wrapper.install --user
-```
-
-Or use the console script:
-
-```bash
-install-kernel-wrapper --user
+python -m jumper_wrapper_kernel.install install
 ```
 
 ## Usage
 
-### Basic Workflow
+1. Start Jupyter Notebook or JupyterLab
+2. Select "Jumper Wrapper Kernel" as your kernel
+3. Use the magic commands:
 
-1. **Start Jupyter**
-   ```bash
-   jupyter notebook
-   # or
-   jupyter lab
-   ```
+### Available Magic Commands
 
-2. **Create a new notebook** with "Kernel Wrapper (with jumper)" kernel
-
-3. **Use jumper magics immediately** (before wrapping):
-   ```python
-   %jumper_status
-   %jumper_info
-   ```
-
-4. **Wrap a kernel** when you need to execute code:
-   ```python
-   %wrap python3
-   ```
-
-5. **Continue using jumper magics** and execute code normally:
-   ```python
-   # Jumper magics still work
-   %jumper_magic
-   
-   # Code is executed in the wrapped kernel
-   import numpy as np
-   print(np.array([1, 2, 3]))
-   ```
-
-### Example Session
+#### `%list_kernels`
+List all available Jupyter kernels that can be wrapped.
 
 ```python
-# Cell 1: Use jumper magics before wrapping
-%jumper_status
-# Output: Shows jumper extension status
+%list_kernels
+```
 
-# Cell 2: Wrap a Python kernel
-%wrap python3
-# Output: Successfully wrapped kernel: python3 (Python 3)
-#         All subsequent code will be executed in the wrapped kernel.
-#         Jumper extensions are available in the wrapper kernel.
+Output:
+```
+Available Jupyter Kernels:
+--------------------------------------------------
+  python3: Python 3 (ipykernel) (python)
+  ir: R (r)
+  julia-1.9: Julia 1.9 (julia)
+--------------------------------------------------
+```
 
-# Cell 3: Execute Python code in wrapped kernel
-import pandas as pd
-df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
-print(df)
-# Output: DataFrame is displayed
+#### `%wrap_kernel <kernel_name>`
+Wrap an existing Jupyter kernel. All subsequent code will be forwarded to this kernel.
 
-# Cell 4: Use jumper magics after wrapping
-%jumper_info
-# Output: Shows jumper extension info
+```python
+%wrap_kernel python3
+```
 
-# Cell 5: Switch to a different kernel
-%wrap ir
-# Output: Successfully wrapped kernel: ir (R)
+Output:
+```
+Successfully wrapped kernel: python3
+```
 
-# Cell 6: Execute R code
-x <- c(1, 2, 3, 4, 5)
-mean(x)
-# Output: [1] 3
+### Jumper Extension Commands
+
+All jumper-extension magic commands are available and executed locally:
+
+- `%perfmonitor_start [interval]` - Start performance monitoring
+- `%perfmonitor_stop` - Stop performance monitoring
+- `%perfmonitor_perfreport` - View performance report
+- `%perfmonitor_plot` - Plot performance data
+- `%cell_history` - View cell execution history
+- And more...
+
+See the [jumper-extension documentation](https://pypi.org/project/jumper-extension/) for full details.
+
+## Example Workflow
+
+```python
+# List available kernels
+%list_kernels
+
+# Wrap a Python kernel
+%wrap_kernel python3
+
+# Start performance monitoring (handled locally)
+%perfmonitor_start
+
+# Execute code on the wrapped kernel
+import numpy as np
+x = np.random.rand(1000, 1000)
+y = np.dot(x, x.T)
+
+# View performance report (handled locally)
+%perfmonitor_perfreport
 ```
 
 ## How It Works
 
-The kernel wrapper is built on top of `IPythonKernel` and uses IPython's extension loading mechanism:
+The Jumper Wrapper Kernel acts as a proxy:
 
-1. **Initialization**: When the kernel starts, it automatically loads jumper_extension using `shell.extension_manager.load_extension('jumper_extension')`
+1. **Magic commands** from jumper-extension are intercepted and executed locally in the wrapper kernel's IPython environment
+2. **All other code** is forwarded to the wrapped kernel for execution
+3. **Output** from the wrapped kernel is streamed back to the notebook
 
-2. **Magic Commands Available**: All jumper magics are immediately available in the wrapper kernel's IPython shell
-
-3. **Kernel Wrapping**: When you use `%wrap <kernel_name>`, the wrapper:
-   - Starts the target kernel as a subprocess
-   - Intelligently routes code based on magic command availability
-   - Keeps jumper magics available in the wrapper context
-
-4. **Smart Magic Routing**: When a wrapped kernel is active:
-   - **Magic commands available in wrapper**: Executed in the wrapper's IPython shell (e.g., jumper magics, %lsmagic, %timeit)
-   - **Regular code**: Forwarded to the wrapped kernel
-   - **Unknown magics**: Forwarded to the wrapped kernel (may work if supported there)
-
-5. **Dual Context**:
-   - **Wrapper kernel**: Handles wrapper-available magics and the `%wrap` command
-   - **Wrapped kernel**: Executes regular code and kernel-specific magics
-
-## Architecture
-
-```
-┌─────────────────────────────────────┐
-│   Jupyter Frontend (Notebook/Lab)  │
-└─────────────────┬───────────────────┘
-                  │
-┌─────────────────▼───────────────────┐
-│     Kernel Wrapper (IPythonKernel) │
-│  - Loads jumper_extension          │
-│  - Handles %wrap command           │
-│  - Executes jumper magics          │
-└─────────────────┬───────────────────┘
-                  │
-        ┌─────────▼─────────┐
-        │  Wrapped Kernel   │
-        │  (Python/R/Julia) │
-        │  - Executes code  │
-        └───────────────────┘
-```
-
-## Requirements
-
-- Python 3.7+
-- ipykernel >= 6.0.0
-- jupyter-client >= 7.0.0
-- **jumper-extension >= 0.1.0** (required)
-
-## Available Kernels
-
-To see which kernels you can wrap:
-
-```bash
-jupyter kernelspec list
-```
-
-Common examples:
-- `python3` - Python 3
-- `ir` - R
-- `julia-1.x` - Julia
-- `javascript` - JavaScript (Node.js)
-
-## Advanced Features
-
-### Automatic Jumper Extension in Wrapped Kernels
-
-For Python kernels, the wrapper automatically attempts to load jumper_extension in the wrapped kernel as well. This means jumper magics can work in both contexts.
-
-### Error Handling
-
-If jumper_extension cannot be loaded, the kernel will log a warning but continue to function. The `%wrap` command will still work, but jumper magics will not be available.
-
-## Troubleshooting
-
-### "jumper_extension not found" error
-
-Make sure jumper_extension is installed:
-```bash
-pip install jumper-extension
-```
-
-### Kernel not responding after wrap
-
-Try restarting the notebook or wrapping a different kernel.
-
-### Magic commands not working
-
-Verify that jumper_extension is properly installed and the kernel was started correctly. Check the kernel logs for any error messages.
-
-## Development
-
-To contribute or modify the kernel:
-
-```bash
-git clone <repository>
-cd jupyter-kernel-wrapper
-pip install -e .
-python -m kernel_wrapper.install --user
-```
+This allows you to monitor performance of any Jupyter kernel, regardless of its language.
 
 ## Uninstallation
 
 ```bash
-# Remove the kernel spec
-jupyter kernelspec uninstall kernel_wrapper
+# Uninstall the kernel spec
+python -m jumper_wrapper_kernel.install uninstall
 
 # Uninstall the package
-pip uninstall jupyter-kernel-wrapper
+pip uninstall jumper_wrapper_kernel
 ```
 
 ## License
 
 MIT License
 
-## Contributing
+## Citation
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+If you use this kernel in your research, please cite the jumper-extension paper:
+
+```
+Werner, E., Rygin, A., Gocht-Zech, A., Döbel, S., & Lieber, M. (2024, November). 
+JUmPER: Performance Data Monitoring, Instrumentation and Visualization for Jupyter Notebooks. 
+In SC24-W: Workshops of the International Conference for High Performance Computing, 
+Networking, Storage and Analysis (pp. 2003-2011). IEEE. 
+https://www.doi.org/10.1109/SCW63240.2024.00250
+```
