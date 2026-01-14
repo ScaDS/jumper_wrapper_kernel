@@ -5,13 +5,14 @@ This kernel wraps other Jupyter kernels and forwards execution to them,
 while keeping jumper-extension magic commands local.
 """
 
-import re
 import sys
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
 from IPython.core.magic import Magics, magics_class, line_magic
 from IPython.core.interactiveshell import ExecutionInfo, ExecutionResult
+
+from .utilities import is_local_magic_cell
 
 
 # Check for jumper-extension dependency
@@ -126,35 +127,9 @@ class JumperWrapperKernel(IPythonKernel):
         """Get a list of available kernel specs."""
         return self._kernel_spec_manager.get_all_specs()
     
-    def _is_jumper_magic(self, code):
-        """Check if code is a jumper-extension magic command."""
-        code = code.strip()
-        if not code.startswith('%'):
-            return False
-        
-        # Extract magic command name
-        match = re.match(r'^%%?(\w+)', code)
-        if match:
-            magic_name = match.group(1)
-            return magic_name in self._jumper_magic_commands
-        return False
-    
-    def _is_wrapper_magic(self, code):
-        """Check if code is a wrapper magic command."""
-        code = code.strip()
-        if not code.startswith('%'):
-            return False
-        
-        match = re.match(r'^%%(\w+)', code)
-        if match:
-            magic_name = match.group(1)
-            return magic_name in self._wrapper_magic_commands
-        
-        match = re.match(r'^%(\w+)', code)
-        if match:
-            magic_name = match.group(1)
-            return magic_name in self._wrapper_magic_commands
-        return False
+    def _get_local_magics(self):
+        """Get combined set of local magic commands."""
+        return self._jumper_magic_commands | self._wrapper_magic_commands
     
     def _list_kernels(self):
         """List all available Jupyter kernels."""
@@ -393,7 +368,7 @@ class JumperWrapperKernel(IPythonKernel):
     
     def _is_local_magic(self, code):
         """Check if code is a magic command that should be executed locally."""
-        return self._is_wrapper_magic(code) or self._is_jumper_magic(code)
+        return is_local_magic_cell(code, self._get_local_magics())
     
     def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
         """Execute code - either locally or forwarded to wrapped kernel."""
