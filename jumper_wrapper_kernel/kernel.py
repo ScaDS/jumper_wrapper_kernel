@@ -79,22 +79,21 @@ class JumperWrapperKernel(IPythonKernel):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         # Wrapped kernel state
         self._wrapped_kernel_name = None
         self._kernel_manager = None
         self._kernel_client = None
         self._kernel_spec_manager = KernelSpecManager()
-        
+
         # Set of magic commands registered (populated after loading extensions)
         self._jumper_magic_commands = set()
         self._wrapper_magic_commands = set()
         self._load_jumper_extension()
         self._register_wrapper_magics()
-        
-        # Auto-wrap kernel if configured
-        if self.auto_wrap_kernel:
-            self._auto_wrap_on_startup()
+
+        # Deferred auto-wrap flag (don't block __init__)
+        self._auto_wrap_pending = bool(self.auto_wrap_kernel)
     
     def _auto_wrap_on_startup(self):
         """Automatically wrap the configured kernel on startup."""
@@ -549,11 +548,16 @@ class JumperWrapperKernel(IPythonKernel):
     def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
         """Execute code - either locally or forwarded to wrapped kernel."""
         user_expressions = user_expressions or {}
-        
+
+        # Perform deferred auto-wrap on first execution (not in __init__ to avoid blocking)
+        if self._auto_wrap_pending:
+            self._auto_wrap_pending = False
+            self._auto_wrap_on_startup()
+
         # Check for local magic commands (wrapper + jumper) - execute locally
         if self._is_local_magic(code):
             return self._execute_local_magic(code)
-        
+
         # Forward everything else to the wrapped kernel
         return self._forward_to_wrapped_kernel(code, silent, store_history, user_expressions, allow_stdin)
     
@@ -564,6 +568,11 @@ class JumperWrapperKernel(IPythonKernel):
     
     def do_complete(self, code, cursor_pos):
         """Handle code completion - forward to wrapped kernel if available."""
+        # Perform deferred auto-wrap if pending
+        if self._auto_wrap_pending:
+            self._auto_wrap_pending = False
+            self._auto_wrap_on_startup()
+
         if self._kernel_client is not None:
             msg_id = self._kernel_client.complete(code, cursor_pos)
             try:
@@ -582,6 +591,11 @@ class JumperWrapperKernel(IPythonKernel):
     
     def do_inspect(self, code, cursor_pos, detail_level=0):
         """Handle object inspection - forward to wrapped kernel if available."""
+        # Perform deferred auto-wrap if pending
+        if self._auto_wrap_pending:
+            self._auto_wrap_pending = False
+            self._auto_wrap_on_startup()
+
         if self._kernel_client is not None:
             msg_id = self._kernel_client.inspect(code, cursor_pos, detail_level)
             try:
