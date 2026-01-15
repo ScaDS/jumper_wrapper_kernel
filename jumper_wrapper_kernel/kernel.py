@@ -12,6 +12,7 @@ from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
 from IPython.core.magic import Magics, magics_class, line_magic
 from IPython.core.interactiveshell import ExecutionInfo, ExecutionResult
+from traitlets import Unicode
 
 
 # Check for jumper-extension dependency
@@ -36,12 +37,20 @@ class JumperWrapperMagics(Magics):
     @line_magic
     def list_kernels(self, line):
         """List all available Jupyter kernels."""
-        return self._kernel._list_kernels()
+        self._kernel._list_kernels()
     
     @line_magic
     def wrap_kernel(self, line):
-        """Wrap an existing Jupyter kernel."""
-        return self._kernel._wrap_kernel(line.strip())
+        """Wrap an existing Jupyter kernel.
+        
+        Usage:
+            %wrap_kernel <kernel_name>
+            %wrap_kernel <kernel_name> --save <new_kernel_name>
+        
+        The --save option creates a new permanent kernel spec that auto-wraps
+        the specified kernel on startup.
+        """
+        self._kernel._wrap_kernel(line.strip())
 
 
 class JumperWrapperKernel(IPythonKernel):
@@ -63,6 +72,10 @@ class JumperWrapperKernel(IPythonKernel):
     }
     banner = "Jumper Wrapper Kernel - Wrap any Jupyter kernel with jumper-extension support"
     
+    # Configuration trait for auto-wrapping a kernel on startup
+    auto_wrap_kernel = Unicode('', config=True,
+        help="Kernel name to automatically wrap on startup. If empty, no auto-wrap.")
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
@@ -77,6 +90,35 @@ class JumperWrapperKernel(IPythonKernel):
         self._wrapper_magic_commands = set()
         self._load_jumper_extension()
         self._register_wrapper_magics()
+        
+        # Auto-wrap kernel if configured
+        if self.auto_wrap_kernel:
+            self._auto_wrap_on_startup()
+    
+    def _auto_wrap_on_startup(self):
+        """Automatically wrap the configured kernel on startup."""
+        kernel_name = self.auto_wrap_kernel
+        
+        # Check if kernel exists
+        available_kernels = self._get_available_kernels()
+        if kernel_name not in available_kernels:
+            self.log.error(f"Auto-wrap kernel '{kernel_name}' not found")
+            return
+        
+        try:
+            self._kernel_manager = KernelManager(kernel_name=kernel_name)
+            self._kernel_manager.start_kernel()
+            self._kernel_client = self._kernel_manager.client()
+            self._kernel_client.start_channels()
+            self._kernel_client.wait_for_ready(timeout=60)
+            self._wrapped_kernel_name = kernel_name
+            
+            # Get language info from wrapped kernel
+            self._update_language_info_from_wrapped_kernel()
+            
+            self.log.info(f"Auto-wrapped kernel: {kernel_name}")
+        except Exception as e:
+            self.log.error(f"Failed to auto-wrap kernel '{kernel_name}': {e}")
     
     def _load_jumper_extension(self):
         """Load jumper-extension and capture its registered magic commands."""
@@ -181,10 +223,26 @@ class JumperWrapperKernel(IPythonKernel):
             'user_expressions': {},
         }
     
-    def _wrap_kernel(self, kernel_name):
+    def _wrap_kernel(self, args):
         """Wrap the specified kernel."""
+        # Parse arguments
+        parts = args.split()
+        kernel_name = None
+        save_name = None
+        
+        i = 0
+        while i < len(parts):
+            if parts[i] == '--save' and i + 1 < len(parts):
+                save_name = parts[i + 1]
+                i += 2
+            elif kernel_name is None:
+                kernel_name = parts[i]
+                i += 1
+            else:
+                i += 1
+        
         if not kernel_name:
-            error_msg = "Usage: %wrap_kernel <kernel_name>\nUse %list_kernels to see available kernels."
+            error_msg = "Usage: %wrap_kernel <kernel_name> [--save <new_kernel_name>]\nUse %list_kernels to see available kernels."
             self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': error_msg})
             return {
                 'status': 'error',
@@ -220,16 +278,25 @@ class JumperWrapperKernel(IPythonKernel):
             self._kernel_client.wait_for_ready(timeout=60)
             self._wrapped_kernel_name = kernel_name
             
-            # Update language info from wrapped kernel
-            kernel_spec = available_kernels[kernel_name].get('spec', {})
-            self.language = kernel_spec.get('language', 'python')
-            self.language_info = {
-                'name': self.language,
-                'mimetype': f'text/x-{self.language}',
-                'file_extension': kernel_spec.get('file_extension', '.txt'),
-            }
+            # Get language info from wrapped kernel via kernel_info request
+            self._update_language_info_from_wrapped_kernel()
+            
+            # Notify frontend to refresh kernel info for updated syntax highlighting
+            self._notify_frontend_language_change()
             
             success_msg = f"Successfully wrapped kernel: {kernel_name}\n"
+            success_msg += "Hint: Refresh the page (without restarting the kernel) to enable syntax highlighting for the wrapped language.\n"
+            
+            # Handle --save option to create permanent kernel spec
+            if save_name:
+                save_result = self._save_wrapped_kernel_spec(kernel_name, save_name)
+                if save_result:
+                    success_msg += f"Created permanent kernel '{save_name}' that auto-wraps '{kernel_name}'.\n"
+                else:
+                    success_msg += f"Warning: Failed to create permanent kernel spec.\n"
+            else:
+                success_msg += f"Tip: Use '%wrap_kernel {kernel_name} --save <name>' to create a permanent kernel that auto-wraps on startup.\n"
+            
             self.send_response(self.iopub_socket, 'stream', {'name': 'stdout', 'text': success_msg})
             
             return {
@@ -248,6 +315,99 @@ class JumperWrapperKernel(IPythonKernel):
                 'traceback': [error_msg],
                 'execution_count': self.execution_count,
             }
+    
+    def _save_wrapped_kernel_spec(self, wrapped_kernel_name, new_kernel_name):
+        """Create a new kernel spec that auto-wraps the specified kernel on startup."""
+        import json
+        import os
+        
+        try:
+            # Get the wrapped kernel's display name
+            available_kernels = self._get_available_kernels()
+            wrapped_spec = available_kernels.get(wrapped_kernel_name, {}).get('spec', {})
+            wrapped_display_name = wrapped_spec.get('display_name', wrapped_kernel_name)
+            
+            # Create kernel spec directory
+            kernel_dir = os.path.join(
+                os.path.expanduser('~'),
+                '.local', 'share', 'jupyter', 'kernels',
+                new_kernel_name
+            )
+            os.makedirs(kernel_dir, exist_ok=True)
+            
+            # Create kernel.json with auto-wrap configuration
+            kernel_spec = {
+                'argv': [
+                    sys.executable,
+                    '-m', 'jumper_wrapper_kernel',
+                    '-f', '{connection_file}',
+                    '--JumperWrapperKernel.auto_wrap_kernel=' + wrapped_kernel_name,
+                ],
+                'display_name': f'Jumper Wrapper ({wrapped_display_name})',
+                'language': wrapped_spec.get('language', 'python'),
+                'metadata': {
+                    'debugger': False,
+                    'jumper_wrapper': {
+                        'wrapped_kernel': wrapped_kernel_name,
+                    }
+                }
+            }
+            
+            kernel_json_path = os.path.join(kernel_dir, 'kernel.json')
+            with open(kernel_json_path, 'w') as f:
+                json.dump(kernel_spec, f, indent=2)
+            
+            return True
+        except Exception as e:
+            return False
+    
+    def _update_language_info_from_wrapped_kernel(self):
+        """Get language info from the wrapped kernel and update our language_info."""
+        if self._kernel_client is None:
+            return
+        
+        try:
+            # Request kernel_info from wrapped kernel
+            msg_id = self._kernel_client.kernel_info()
+            reply = self._kernel_client.get_shell_msg(timeout=10)
+            
+            if reply['content'].get('status') == 'ok':
+                wrapped_language_info = reply['content'].get('language_info', {})
+                
+                # Update our language info to match the wrapped kernel
+                if wrapped_language_info:
+                    self.language = wrapped_language_info.get('name', 'python')
+                    self.language_info = wrapped_language_info.copy()
+        except Exception:
+            pass
+    
+    def _notify_frontend_language_change(self):
+        """Send JavaScript to frontend to trigger kernel info refresh for syntax highlighting."""
+        js_code = """
+        if (typeof Jupyter !== 'undefined' && Jupyter.notebook) {
+            // JupyterLab classic notebook
+            Jupyter.notebook.kernel.kernel_info(function(reply) {
+                if (reply.content && reply.content.language_info) {
+                    Jupyter.notebook.metadata.language_info = reply.content.language_info;
+                    // Trigger CodeMirror mode change for all cells
+                    var mode = reply.content.language_info.codemirror_mode || reply.content.language_info.name;
+                    Jupyter.notebook.get_cells().forEach(function(cell) {
+                        if (cell.cell_type === 'code') {
+                            cell.code_mirror.setOption('mode', mode);
+                        }
+                    });
+                }
+            });
+        }
+        """
+        self.send_response(
+            self.iopub_socket,
+            'display_data',
+            {
+                'data': {'application/javascript': js_code},
+                'metadata': {},
+            }
+        )
     
     def _shutdown_wrapped_kernel(self):
         """Shutdown the currently wrapped kernel."""
@@ -307,17 +467,27 @@ class JumperWrapperKernel(IPythonKernel):
             allow_stdin=allow_stdin,
         )
         
-        # Process messages from the wrapped kernel
+        # Process messages from the wrapped kernel until we get the shell reply
+        # We need to process iopub messages while waiting for the reply
         execution_error = None
-        while True:
+        got_idle = False
+        result = None
+        
+        # Process iopub messages until we see idle status
+        while not got_idle:
             try:
-                msg = self._kernel_client.get_iopub_msg(timeout=30)
+                msg = self._kernel_client.get_iopub_msg(timeout=0.1)
                 msg_type = msg['header']['msg_type']
                 content = msg['content']
                 
+                # Only process messages for our execution request
+                parent_msg_id = msg.get('parent_header', {}).get('msg_id')
+                if parent_msg_id != msg_id:
+                    continue
+                
                 if msg_type == 'status':
                     if content.get('execution_state') == 'idle':
-                        break
+                        got_idle = True
                 elif msg_type == 'error':
                     execution_error = Exception(content.get('evalue', 'Unknown error'))
                     self.send_response(self.iopub_socket, msg_type, content)
@@ -325,21 +495,27 @@ class JumperWrapperKernel(IPythonKernel):
                     self.send_response(self.iopub_socket, msg_type, content)
                     
             except Exception:
-                break
+                # Timeout - check if shell reply is available
+                try:
+                    reply = self._kernel_client.get_shell_msg(timeout=0.1)
+                    result = reply['content']
+                except Exception:
+                    pass
         
-        # Get the reply
-        try:
-            reply = self._kernel_client.get_shell_msg(timeout=30)
-            result = reply['content']
-        except Exception as e:
-            execution_error = e
-            result = {
-                'status': 'error',
-                'ename': type(e).__name__,
-                'evalue': str(e),
-                'traceback': [str(e)],
-                'execution_count': self.execution_count,
-            }
+        # If we didn't get the shell reply yet, get it now
+        if result is None:
+            try:
+                reply = self._kernel_client.get_shell_msg(timeout=30)
+                result = reply['content']
+            except Exception as e:
+                execution_error = e
+                result = {
+                    'status': 'error',
+                    'ename': type(e).__name__,
+                    'evalue': str(e),
+                    'traceback': [str(e)],
+                    'execution_count': self.execution_count,
+                }
         
         # Trigger post_run_cell event for jumper-extension
         self._trigger_post_run_cell(
@@ -444,6 +620,18 @@ class JumperWrapperKernel(IPythonKernel):
             'found': False,
             'data': {},
             'metadata': {},
+        }
+    
+    @property
+    def kernel_info(self):
+        """Return kernel info with current language_info (may be from wrapped kernel)."""
+        return {
+            'protocol_version': '5.3',
+            'implementation': self.implementation,
+            'implementation_version': self.implementation_version,
+            'language_info': self.language_info,
+            'banner': self.banner,
+            'help_links': [],
         }
 
 
