@@ -5,6 +5,7 @@ This kernel wraps other Jupyter kernels and forwards execution to them,
 while keeping jumper-extension magic commands local.
 """
 
+import os
 import sys
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client import KernelManager
@@ -53,6 +54,15 @@ class JumperWrapperMagics(Magics):
         """
         self._kernel._wrap_kernel(line.strip())
 
+    @line_magic
+    def remove_kernel(self, line):
+        """Remove a Jupyter kernel spec created by the wrapper.
+
+        Usage:
+            %remove_kernel <kernel_name>
+        """
+        self._kernel._remove_kernel(line.strip())
+
 
 class JumperWrapperKernel(IPythonKernel):
     """A Jupyter kernel that wraps other kernels."""
@@ -85,6 +95,7 @@ class JumperWrapperKernel(IPythonKernel):
         self._kernel_manager = None
         self._kernel_client = None
         self._kernel_spec_manager = KernelSpecManager()
+        self._wrapper_kernel_spec_name = os.environ.get("JUMPER_WRAPPER_KERNEL_SPEC", "")
 
         # Set of magic commands registered (populated after loading extensions)
         self._jumper_magic_commands = set()
@@ -319,6 +330,9 @@ class JumperWrapperKernel(IPythonKernel):
                 ],
                 'display_name': new_kernel_name,
                 'language': wrapped_spec.get('language', 'python'),
+                'env': {
+                    'JUMPER_WRAPPER_KERNEL_SPEC': new_kernel_name,
+                },
                 'metadata': {
                     'debugger': False,
                     'jumper_wrapper': {
@@ -334,27 +348,133 @@ class JumperWrapperKernel(IPythonKernel):
             return True
         except Exception as e:
             return False
-    
+
+    def _remove_kernel(self, args):
+        """Remove a kernel spec created by the wrapper."""
+        kernel_name = args.strip()
+
+        if not kernel_name:
+            error_msg = "Usage: %remove_kernel <kernel_name>\nUse %list_kernels to see available kernels."
+            self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': error_msg})
+            return {
+                'status': 'error',
+                'ename': 'ValueError',
+                'evalue': 'No kernel name specified',
+                'traceback': [error_msg],
+                'execution_count': self.execution_count,
+            }
+
+        # Shutdown wrapped kernel if it matches the kernel name
+        if self._wrapped_kernel_name == kernel_name:
+            self._shutdown_wrapped_kernel()
+
+        available_kernels = self._get_available_kernels()
+        if kernel_name not in available_kernels:
+            error_msg = f"Kernel '{kernel_name}' not found. Use %list_kernels to see available kernels."
+            self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': error_msg})
+            return {
+                'status': 'error',
+                'ename': 'ValueError',
+                'evalue': f'Kernel not found: {kernel_name}',
+                'traceback': [error_msg],
+                'execution_count': self.execution_count,
+            }
+
+        spec = available_kernels.get(kernel_name, {}).get('spec', {})
+        metadata = spec.get('metadata', {})
+        wrapper_metadata = metadata.get('jumper_wrapper', {})
+        if not wrapper_metadata:
+            error_msg = (
+                f"Kernel '{kernel_name}' was not created by the wrapper; "
+                "refusing to remove. Use %list_kernels to inspect available kernels."
+            )
+            self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': error_msg})
+            return {
+                'status': 'error',
+                'ename': 'ValueError',
+                'evalue': 'Not a wrapper-created kernel',
+                'traceback': [error_msg],
+                'execution_count': self.execution_count,
+            }
+
+        # Case 1: We were started from a named wrapper kernel spec.
+        # Shut down this wrapper kernel only if the removed kernel name
+        # matches our own wrapper kernel spec name.
+        if self._wrapper_kernel_spec_name:
+            should_shutdown_self = (self._wrapper_kernel_spec_name == kernel_name)
+        else:
+            # Case 2: We were started via auto-wrap without a wrapper spec name.
+            # Shut down this wrapper kernel if the removed kernel is the same
+            # as our auto-wrapped target and there is no other wrapper spec
+            # for that target (i.e., this wrapper is the only one).
+            wrapped_kernel = (wrapper_metadata or {}).get("wrapped_kernel")
+            should_shutdown_self = bool(
+                wrapped_kernel
+                and self.auto_wrap_kernel == wrapped_kernel
+                and self._is_only_wrapper_spec(available_kernels, wrapped_kernel)
+            )
+
+        return self._try_remove(kernel_name, should_shutdown_self)
+
+
+    def _is_only_wrapper_spec(self, available_kernels, wrapped_kernel) -> bool:
+        """Return True if there is exactly one wrapper spec for wrapped_kernel."""
+        return sum(
+            1
+            for spec_info in available_kernels.values()
+            if spec_info.get("spec", {})
+            .get("metadata", {})
+            .get("jumper_wrapper", {})
+            .get("wrapped_kernel") == wrapped_kernel
+        ) == 1
+
+    def _try_remove(self,kernel_name: str,  should_shutdown_self: bool):
+        try:
+            self._kernel_spec_manager.remove_kernel_spec(kernel_name)
+            success_msg = f"Removed kernel spec: {kernel_name}\n"
+            if should_shutdown_self:
+                success_msg += "Current kernel will shut down.\n"
+            self.send_response(self.iopub_socket, 'stream', {'name': 'stdout', 'text': success_msg})
+            if should_shutdown_self:
+                self._shutdown_wrapped_kernel()
+                self.shell.exit_now = True
+            return {
+                'status': 'ok',
+                'execution_count': self.execution_count,
+                'payload': [],
+                'user_expressions': {},
+            }
+        except Exception as e:
+            error_msg = f"Failed to remove kernel '{kernel_name}': {str(e)}"
+            self.send_response(self.iopub_socket, 'stream', {'name': 'stderr', 'text': error_msg})
+            return {
+                'status': 'error',
+                'ename': type(e).__name__,
+                'evalue': str(e),
+                'traceback': [error_msg],
+                'execution_count': self.execution_count,
+            }
+
     def _update_language_info_from_wrapped_kernel(self):
         """Get language info from the wrapped kernel and update our language_info."""
         if self._kernel_client is None:
             return
-        
+
         try:
             # Request kernel_info from wrapped kernel
             msg_id = self._kernel_client.kernel_info()
             reply = self._kernel_client.get_shell_msg(timeout=10)
-            
+
             if reply['content'].get('status') == 'ok':
                 wrapped_language_info = reply['content'].get('language_info', {})
-                
+
                 # Update our language info to match the wrapped kernel
                 if wrapped_language_info:
                     self.language = wrapped_language_info.get('name', 'python')
                     self.language_info = wrapped_language_info.copy()
         except Exception:
             pass
-    
+
     def _notify_frontend_language_change(self):
         """Send JavaScript to frontend to trigger kernel info refresh for syntax highlighting."""
         js_code = """
@@ -382,19 +502,19 @@ class JumperWrapperKernel(IPythonKernel):
                 'metadata': {},
             }
         )
-    
+
     def _shutdown_wrapped_kernel(self):
         """Shutdown the currently wrapped kernel."""
         if self._kernel_client is not None:
             self._kernel_client.stop_channels()
             self._kernel_client = None
-        
+
         if self._kernel_manager is not None:
             self._kernel_manager.shutdown_kernel(now=True)
             self._kernel_manager = None
-        
+
         self._wrapped_kernel_name = None
-    
+
     def _trigger_pre_run_cell(self, code, silent, store_history):
         """Trigger pre_run_cell event for jumper-extension hooks."""
         info = ExecutionInfo(
@@ -406,7 +526,7 @@ class JumperWrapperKernel(IPythonKernel):
         )
         self.shell.events.trigger('pre_run_cell', info)
         return info
-    
+
     def _trigger_post_run_cell(self, info, success=True, result_value=None, error=None):
         """Trigger post_run_cell event for jumper-extension hooks."""
         exec_result = ExecutionResult(info)
@@ -415,7 +535,7 @@ class JumperWrapperKernel(IPythonKernel):
             exec_result.error_in_exec = error
         self.shell.events.trigger('post_run_cell', exec_result)
         return exec_result
-    
+
     def _forward_to_wrapped_kernel(self, code, silent, store_history, user_expressions, allow_stdin):
         """Forward code execution to the wrapped kernel."""
         if self._kernel_client is None:
@@ -428,10 +548,10 @@ class JumperWrapperKernel(IPythonKernel):
                 'traceback': [error_msg],
                 'execution_count': self.execution_count,
             }
-        
+
         # Trigger pre_run_cell event for jumper-extension
         exec_info = self._trigger_pre_run_cell(code, silent, store_history)
-        
+
         # Execute on wrapped kernel
         msg_id = self._kernel_client.execute(
             code,
@@ -440,25 +560,25 @@ class JumperWrapperKernel(IPythonKernel):
             user_expressions=user_expressions,
             allow_stdin=allow_stdin,
         )
-        
+
         # Process messages from the wrapped kernel until we get the shell reply
         # We need to process iopub messages while waiting for the reply
         execution_error = None
         got_idle = False
         result = None
-        
+
         # Process iopub messages until we see idle status
         while not got_idle:
             try:
                 msg = self._kernel_client.get_iopub_msg(timeout=0.1)
                 msg_type = msg['header']['msg_type']
                 content = msg['content']
-                
+
                 # Only process messages for our execution request
                 parent_msg_id = msg.get('parent_header', {}).get('msg_id')
                 if parent_msg_id != msg_id:
                     continue
-                
+
                 if msg_type == 'status':
                     if content.get('execution_state') == 'idle':
                         got_idle = True
@@ -467,7 +587,7 @@ class JumperWrapperKernel(IPythonKernel):
                     self.send_response(self.iopub_socket, msg_type, content)
                 elif msg_type in ('stream', 'display_data', 'execute_result'):
                     self.send_response(self.iopub_socket, msg_type, content)
-                    
+
             except Exception:
                 # Timeout - check if shell reply is available
                 try:
@@ -475,7 +595,7 @@ class JumperWrapperKernel(IPythonKernel):
                     result = reply['content']
                 except Exception:
                     pass
-        
+
         # If we didn't get the shell reply yet, get it now
         if result is None:
             try:
@@ -490,24 +610,24 @@ class JumperWrapperKernel(IPythonKernel):
                     'traceback': [str(e)],
                     'execution_count': self.execution_count,
                 }
-        
+
         # Trigger post_run_cell event for jumper-extension
         self._trigger_post_run_cell(
             exec_info,
             success=(result.get('status') == 'ok'),
             error=execution_error
         )
-        
+
         return result
-    
+
     def _execute_local_magic(self, code):
         """Execute a magic command locally using IPython."""
         try:
             result = self.shell.run_cell(code)
-            
+
             if result.success:
                 if result.result is not None:
-                    self.send_response(self.iopub_socket, 'stream', 
+                    self.send_response(self.iopub_socket, 'stream',
                                       {'name': 'stdout', 'text': str(result.result) + '\n'})
                 return {
                     'status': 'ok',
@@ -540,11 +660,11 @@ class JumperWrapperKernel(IPythonKernel):
                 'traceback': [str(e)],
                 'execution_count': self.execution_count,
             }
-    
+
     def _is_local_magic(self, code):
         """Check if code is a magic command that should be executed locally."""
         return is_local_magic_cell(code, self._get_local_magics())
-    
+
     def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
         """Execute code - either locally or forwarded to wrapped kernel."""
         user_expressions = user_expressions or {}
@@ -560,12 +680,12 @@ class JumperWrapperKernel(IPythonKernel):
 
         # Forward everything else to the wrapped kernel
         return self._forward_to_wrapped_kernel(code, silent, store_history, user_expressions, allow_stdin)
-    
+
     def do_shutdown(self, restart):
         """Shutdown the kernel."""
         self._shutdown_wrapped_kernel()
         return {'status': 'ok', 'restart': restart}
-    
+
     def do_complete(self, code, cursor_pos):
         """Handle code completion - forward to wrapped kernel if available."""
         # Perform deferred auto-wrap if pending
@@ -580,7 +700,7 @@ class JumperWrapperKernel(IPythonKernel):
                 return reply['content']
             except Exception:
                 pass
-        
+
         return {
             'status': 'ok',
             'matches': [],
@@ -588,7 +708,7 @@ class JumperWrapperKernel(IPythonKernel):
             'cursor_end': cursor_pos,
             'metadata': {},
         }
-    
+
     def do_inspect(self, code, cursor_pos, detail_level=0):
         """Handle object inspection - forward to wrapped kernel if available."""
         # Perform deferred auto-wrap if pending
@@ -603,14 +723,14 @@ class JumperWrapperKernel(IPythonKernel):
                 return reply['content']
             except Exception:
                 pass
-        
+
         return {
             'status': 'ok',
             'found': False,
             'data': {},
             'metadata': {},
         }
-    
+
     @property
     def kernel_info(self):
         """Return kernel info with current language_info (may be from wrapped kernel)."""

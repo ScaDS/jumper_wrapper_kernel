@@ -74,6 +74,18 @@ Output:
 Successfully wrapped kernel: python3
 ```
 
+#### `%remove_kernel <kernel_name>`
+Remove a wrapper-created kernel spec. If the kernel is currently wrapped, it will be shut down first.
+
+```python
+%remove_kernel my_wrapped_kernel
+```
+
+Output:
+```
+Removed kernel spec: my_wrapped_kernel
+```
+
 ### Jumper Extension Commands
 
 All jumper-extension magic commands are available and executed locally:
