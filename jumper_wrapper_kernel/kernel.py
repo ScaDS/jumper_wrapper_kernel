@@ -32,6 +32,12 @@ class JumperWrapperMagics(Magics):
     """Magic commands for the Jumper Wrapper Kernel."""
     
     def __init__(self, shell, kernel):
+        """Initialize magic commands with shell and kernel references.
+
+        Args:
+            shell: IPython shell instance.
+            kernel: JumperWrapperKernel instance for delegating operations.
+        """
         super().__init__(shell)
         self._kernel = kernel
     
@@ -78,6 +84,11 @@ class JumperWrapperKernel(IPythonKernel):
         help="Kernel name to automatically wrap on startup. If empty, no auto-wrap.")
     
     def __init__(self, **kwargs):
+        """Initialize the wrapper kernel.
+
+        Loads jumper-extension, registers wrapper magics, and prepares
+        for optional auto-wrapping based on configuration.
+        """
         super().__init__(**kwargs)
 
         # Wrapped kernel state

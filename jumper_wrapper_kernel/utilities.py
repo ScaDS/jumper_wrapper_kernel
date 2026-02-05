@@ -8,11 +8,25 @@ from IPython import get_ipython
 
 @lru_cache(maxsize=1)
 def get_line_magics_cached() -> FrozenSet[str]:
+    """Return cached set of all registered line magic names.
+
+    Returns:
+        Frozen set of magic command names (without % prefix).
+    """
     ip = get_ipython()
     return frozenset(ip.magics_manager.lsmagic().get("line", []))
 
 
 def is_known_line_magic(line: str, line_magics: frozenset) -> bool:
+    """Check if a line starts with a known magic command.
+
+    Args:
+        line: Single line of code to check.
+        line_magics: Set of known magic names (without % prefix).
+
+    Returns:
+        True if line starts with %<known_magic>, False otherwise.
+    """
     s = line.lstrip()
     if not s.startswith("%"):
         return False

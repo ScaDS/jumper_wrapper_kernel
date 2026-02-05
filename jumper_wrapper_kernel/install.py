@@ -20,7 +20,12 @@ KERNEL_JSON = {
 
 
 def install_kernel(user=True, prefix=None):
-    """Install the kernel spec."""
+    """Install the Jumper Wrapper Kernel specification.
+
+    Args:
+        user: If True, install for current user only. Ignored if prefix is set.
+        prefix: Install to specific prefix path (e.g., sys.prefix for virtualenv).
+    """
     import tempfile
     import shutil
     
@@ -52,7 +57,7 @@ def install_kernel(user=True, prefix=None):
 
 
 def uninstall_kernel():
-    """Uninstall the kernel spec."""
+    """Remove the Jumper Wrapper Kernel specification."""
     kernel_spec_manager = KernelSpecManager()
     
     try:
@@ -64,6 +69,7 @@ def uninstall_kernel():
 
 
 def main():
+    """CLI entry point for kernel installation and removal."""
     parser = argparse.ArgumentParser(description='Install/Uninstall Jumper Wrapper Kernel')
     parser.add_argument('action', choices=['install', 'uninstall'], help='Action to perform')
     parser.add_argument('--user', action='store_true', default=True,

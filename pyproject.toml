@@ -38,6 +38,11 @@ dev = [
     "pytest-cov",
 ]
 
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
 [project.urls]
 Homepage = "https://github.com/ScaDS/jumper_wrapper_kernel"
 Repository = "https://github.com/ScaDS/jumper_wrapper_kernel"
