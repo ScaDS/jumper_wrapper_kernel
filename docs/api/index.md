@@ -11,31 +11,7 @@ The Jumper Wrapper Kernel exposes a modular API organized into three main compon
 - **Utilities** - Helper functions for magic command detection and cell routing
 
 ## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Jupyter Frontend                      │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│              JumperWrapperKernel                         │
-│  ┌─────────────────┐  ┌──────────────────────────────┐  │
-│  │ JumperWrapper   │  │ jumper-extension             │  │
-│  │ Magics          │  │ (loaded locally)             │  │
-│  │ - %list_kernels │  │ - %perfmonitor_start         │  │
-│  │ - %wrap_kernel  │  │ - %perfmonitor_stop          │  │
-│  └─────────────────┘  │ - etc.                       │  │
-│                       └──────────────────────────────┘  │
-│                                                         │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │              Wrapped Kernel                      │   │
-│  │   (Python, R, Julia, etc.)                       │   │
-│  │   - Receives forwarded code                      │   │
-│  │   - Returns execution results                    │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
+To be described
 
 ## Message Flow
 
