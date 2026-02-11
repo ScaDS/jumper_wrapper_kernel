@@ -328,7 +328,7 @@ class JumperWrapperKernel(IPythonKernel):
                     '-f', '{connection_file}',
                     '--JumperWrapperKernel.auto_wrap_kernel=' + wrapped_kernel_name,
                 ],
-                'display_name': new_kernel_name,
+                'display_name': f'Jumper Wrapper ({new_kernel_name})',
                 'language': wrapped_spec.get('language', 'python'),
                 'metadata': {
                     'debugger': False,
