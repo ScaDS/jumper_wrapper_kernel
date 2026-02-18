@@ -6,6 +6,7 @@ while keeping jumper-extension magic commands local.
 """
 
 import sys
+import os
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
@@ -133,18 +134,22 @@ class JumperWrapperKernel(IPythonKernel):
     
     def _load_jumper_extension(self):
         """Load jumper-extension and capture its registered magic commands."""
+        # Ensure matplotlib picks an inline-friendly backend (before
+        # IPKernelApp.init_gui_pylab sets MPLBACKEND).
+        os.environ.setdefault("MPLBACKEND", "module://matplotlib_inline.backend_inline")
+
         # Get magics before loading extension
         magics_before = self._get_all_magics()
         
         # Load jumper extension using the kernel's shell
         self.shell.run_line_magic('load_ext', 'jumper_extension')
-        
+
         # Get magics after loading extension
         magics_after = self._get_all_magics()
         
         # The difference is the magics registered by jumper-extension
         self._jumper_magic_commands = magics_after - magics_before
-    
+
     def _register_wrapper_magics(self):
         """Register wrapper magic commands and capture their names."""
         # Get magics before registering
@@ -556,7 +561,7 @@ class JumperWrapperKernel(IPythonKernel):
         """Check if code is a magic command that should be executed locally."""
         return is_local_magic_cell(code, self._get_local_magics())
     
-    def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
+    def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False, **kwargs):
         """Execute code - either locally or forwarded to wrapped kernel."""
         user_expressions = user_expressions or {}
 
