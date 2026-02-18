@@ -2,11 +2,15 @@
 Installation script for the Jumper Wrapper Kernel.
 """
 
+import argparse
 import json
 import os
 import sys
-import argparse
+from pathlib import Path
+
 from jupyter_client.kernelspec import KernelSpecManager
+
+from .icon_utils import create_wrapped_kernel_icons, create_base_kernel_icons
 
 
 KERNEL_JSON = {
@@ -36,6 +40,9 @@ def install_kernel(user=True, prefix=None):
         
         with open(kernel_json_path, 'w') as f:
             json.dump(KERNEL_JSON, f, indent=2)
+
+        # Add branded icons for the base launcher entry (full kangaroo icon)
+        create_base_kernel_icons(Path(temp_dir))
         
         # Install the kernel spec
         if prefix:
