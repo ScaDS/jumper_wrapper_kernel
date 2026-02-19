@@ -16,10 +16,19 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     git \
     python3 \
-    python3-pip
+    python3-pip \
+    r-base \
+    r-base-dev \
+    libzmq3-dev \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libxml2-dev
 
 # Upgrade pip and install base Python dependencies
 RUN pip3 install --upgrade pip setuptools wheel
+
+# Install IRkernel for R and register the R kernel system-wide
+RUN R -e "install.packages('IRkernel', repos='https://cloud.r-project.org'); IRkernel::installspec(user=FALSE)"
 
 # Create jovyan user with UID 1000 (Binder requirement)
 RUN adduser --disabled-password \
