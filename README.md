@@ -108,6 +108,11 @@ y = np.dot(x, x.T)
 %perfmonitor_perfreport
 ```
 
+### Launch the demo interactively
+
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ScaDS/jumper_wrapper_kernel/feature/binder?urlpath=%2Fdoc%2Ftree%2Fdemos%2Fnew_R_wrapping.ipynb)
+
+
 ## How It Works
 
 The Jumper Wrapper Kernel acts as a proxy:
