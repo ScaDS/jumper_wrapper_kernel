@@ -6,6 +6,7 @@ while keeping jumper-extension magic commands local.
 """
 
 import sys
+from pathlib import Path
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client import KernelManager
 from jupyter_client.kernelspec import KernelSpecManager
@@ -14,6 +15,7 @@ from IPython.core.interactiveshell import ExecutionInfo, ExecutionResult
 from traitlets import Unicode
 
 from .utilities import is_local_magic_cell
+from .icon_utils import create_wrapped_kernel_icons
 
 
 # Check for jumper-extension dependency
@@ -311,6 +313,7 @@ class JumperWrapperKernel(IPythonKernel):
             available_kernels = self._get_available_kernels()
             wrapped_spec = available_kernels.get(wrapped_kernel_name, {}).get('spec', {})
             wrapped_display_name = wrapped_spec.get('display_name', wrapped_kernel_name)
+            base_kernel_spec = self._kernel_spec_manager.get_kernel_spec(wrapped_kernel_name)
             
             # Create kernel spec directory
             kernel_dir = os.path.join(
@@ -341,6 +344,13 @@ class JumperWrapperKernel(IPythonKernel):
             kernel_json_path = os.path.join(kernel_dir, 'kernel.json')
             with open(kernel_json_path, 'w') as f:
                 json.dump(kernel_spec, f, indent=2)
+
+            # Generate launcher icons with kangaroo badge
+            create_wrapped_kernel_icons(
+                Path(kernel_dir),
+                wrapped_spec=base_kernel_spec,
+                logger=self.log
+            )
             
             return True
         except Exception as e:
