@@ -45,7 +45,7 @@ RUN pip install --no-cache-dir jupyterlab notebook
 # Install jumper_wrapper_kernel and jumper_ipython_extension from GitHub (pinned commits for reproducibility)
 RUN pip install --no-cache-dir \
     "git+https://github.com/ScaDS/jumper_wrapper_kernel.git@main" \
-    "git+https://github.com/ScaDS/jumper_ipython_extension.git@f397c77"
+    "git+https://github.com/ScaDS/jumper_ipython_extension.git@main"
 
 # Register the wrapper kernel spec for jovyan (user-level, avoids /usr permissions)
 RUN python3 -m jumper_wrapper_kernel.install install
