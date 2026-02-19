@@ -48,7 +48,7 @@ RUN pip install --no-cache-dir \
     "git+https://github.com/ScaDS/jumper_ipython_extension.git@f397c77"
 
 # Register the wrapper kernel spec
-RUN python3 -m jumper_wrapper_kernel.install install
+RUN python3 -m jumper_wrapper_kernel.install install --sys-prefix
 
 # Expose Jupyter Notebook port
 EXPOSE 8888
