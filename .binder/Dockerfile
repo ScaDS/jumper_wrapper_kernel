@@ -7,9 +7,9 @@ ENV TZ=Europe/Berlin
 # Define Binder-required user variables
 ARG NB_USER=jovyan
 ARG NB_UID=1000
-ENV USER ${NB_USER}
-ENV NB_UID ${NB_UID}
-ENV HOME /home/${NB_USER}
+ENV USER=${NB_USER}
+ENV NB_UID=${NB_UID}
+ENV HOME=/home/${NB_USER}
 
 # Install necessary system dependencies
 RUN apt-get update && apt-get install -y \
@@ -47,8 +47,8 @@ RUN pip install --no-cache-dir \
     "git+https://github.com/ScaDS/jumper_wrapper_kernel.git@main" \
     "git+https://github.com/ScaDS/jumper_ipython_extension.git@f397c77"
 
-# Register the wrapper kernel spec
-RUN python3 -m jumper_wrapper_kernel.install install --sys-prefix
+# Register the wrapper kernel spec for jovyan (user-level, avoids /usr permissions)
+RUN python3 -m jumper_wrapper_kernel.install install
 
 # Expose Jupyter Notebook port
 EXPOSE 8888
