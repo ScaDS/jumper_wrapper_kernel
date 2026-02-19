@@ -14,6 +14,7 @@ ENV HOME /home/${NB_USER}
 # Install necessary system dependencies
 RUN apt-get update && apt-get install -y \
     software-properties-common \
+    git \
     python3 \
     python3-pip
 
