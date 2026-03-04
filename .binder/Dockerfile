@@ -56,7 +56,7 @@ USER ${NB_USER}
 # Ensure the PATH includes the correct Python location
 ENV PATH="${HOME}/.local/bin:${PATH}"
 
-# Install jumper_wrapper_kernel and jumper_ipython_extension from GitHub (pinned commits for reproducibility)
+# Install jumper_wrapper_kernel and jumper_ipython_extension from GitHub
 RUN pip install --no-cache-dir \
     "git+https://github.com/ScaDS/jumper_wrapper_kernel.git@main" \
     "git+https://github.com/ScaDS/jumper_ipython_extension.git@main"

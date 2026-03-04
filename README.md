@@ -110,7 +110,12 @@ y = np.dot(x, x.T)
 
 ### Launch the demo interactively
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ScaDS/jumper_wrapper_kernel/feature/binder?urlpath=%2Fdoc%2Ftree%2Fdemos%2Fnew_R_wrapping.ipynb)
+- **How to Wrap a Kernel: Basic R Kernel Example**\
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ScaDS/jumper_wrapper_kernel/main?urlpath=%2Fdoc%2Ftree%2Fdemos%2Fnew_R_wrapping.ipynb)
+
+
+- **H2O-Wrapped Tutorial**\
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/ScaDS/jumper_wrapper_kernel/main?urlpath=%2Fdoc%2Ftree%2Fdemos%2Fh2o-wrapper-tutorial.ipynb)
 
 
 ## How It Works
