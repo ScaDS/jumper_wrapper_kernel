@@ -1,3 +1,5 @@
+[![Documentation](https://img.shields.io/badge/docs-wrapper-blue?logo=github)](https://scads.github.io/jumper_wrapper_kernel/)
+
 # Jumper Wrapper Kernel
 
 A Jupyter kernel that wraps other kernels while providing jumper-extension performance monitoring capabilities.
